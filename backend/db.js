@@ -1,20 +1,17 @@
-const initSqlJs = require('sql.js');
+const Database = require('better-sqlite3');
 const path = require('path');
-const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, 'journal.db');
-let db;
+// Use /tmp for Render (ephemeral but works), fallback to local for development
+const DB_PATH = process.env.NODE_ENV === 'production' 
+  ? '/tmp/journal.db' 
+  : path.join(__dirname, 'journal.db');
 
-async function getDb() {
-  if (db) return db;
-  const SQL = await initSqlJs();
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
-  db.run(`CREATE TABLE IF NOT EXISTS journal_entries (
+const db = new Database(DB_PATH);
+
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS journal_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId TEXT NOT NULL,
     ambience TEXT NOT NULL DEFAULT 'nature',
@@ -24,39 +21,40 @@ async function getDb() {
     summary TEXT,
     analyzed INTEGER DEFAULT 0,
     createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
-  save();
-  return db;
-}
+  )
+`);
 
-function save() {
-  if (!db) return;
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
-}
+console.log('📦 SQLite connected at', DB_PATH);
 
-async function asyncRun(sql, params = []) {
-  const d = await getDb();
-  d.run(sql, params);
-  save();
-  return { lastID: d.exec("SELECT last_insert_rowid() as id")[0]?.values[0][0] };
-}
+// Async helpers
+db.asyncRun = (sql, params = []) => {
+  try {
+    const stmt = db.prepare(sql);
+    const result = stmt.run(params);
+    return Promise.resolve({ lastID: result.lastInsertRowid, changes: result.changes });
+  } catch (err) {
+    return Promise.reject(err);
+  }
+};
 
-async function asyncGet(sql, params = []) {
-  const d = await getDb();
-  const res = d.exec(sql, params);
-  if (!res[0]) return null;
-  const cols = res[0].columns;
-  const vals = res[0].values[0];
-  return Object.fromEntries(cols.map((c, i) => [c, vals[i]]));
-}
+db.asyncGet = (sql, params = []) => {
+  try {
+    const stmt = db.prepare(sql);
+    const row = stmt.get(params);
+    return Promise.resolve(row || null);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+};
 
-async function asyncAll(sql, params = []) {
-  const d = await getDb();
-  const res = d.exec(sql, params);
-  if (!res[0]) return [];
-  const cols = res[0].columns;
-  return res[0].values.map(row => Object.fromEntries(cols.map((c, i) => [c, row[i]])));
-}
+db.asyncAll = (sql, params = []) => {
+  try {
+    const stmt = db.prepare(sql);
+    const rows = stmt.all(params);
+    return Promise.resolve(rows || []);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+};
 
-module.exports = { asyncRun, asyncGet, asyncAll };
+module.exports = db;
