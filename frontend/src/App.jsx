@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 
-const API = '/api/journal'
+const API = import.meta.env.VITE_API_URL || '/api/journal'
 
 const AMBIENCES = [
   { value: 'forest',   label: '🌲 Forest' },
