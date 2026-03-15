@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { asyncRun, asyncGet, asyncAll } = require('../db');
+const db = require('../db');
 const { analyzeEmotion, analyzeEmotionStream } = require('../llmService');
 
-// ── In-memory cache (hash → result) 
+// ── In-memory cache (hash → result) ──────────────────────────────────────────
 const analysisCache = new Map();
 
 function getCacheKey(text) {

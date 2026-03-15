@@ -1,16 +1,13 @@
-const Database = require('better-sqlite3');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Use /tmp for Render (ephemeral but works), fallback to local for development
-const DB_PATH = process.env.NODE_ENV === 'production' 
-  ? '/tmp/journal.db' 
-  : path.join(__dirname, 'journal.db');
+const db = new sqlite3.Database(path.join(__dirname, 'journal.db'), (err) => {
+  if (err) console.error('DB connection error:', err);
+  else console.log('📦 SQLite connected');
+});
 
-const db = new Database(DB_PATH);
-
-db.pragma('journal_mode = WAL');
-
-db.exec(`
+// Create tables on startup
+db.run(`
   CREATE TABLE IF NOT EXISTS journal_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId TEXT NOT NULL,
@@ -24,37 +21,31 @@ db.exec(`
   )
 `);
 
-console.log('📦 SQLite connected at', DB_PATH);
+// Helper: run a query (INSERT, UPDATE, DELETE)
+db.asyncRun = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) reject(err);
+      else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
 
-// Async helpers
-db.asyncRun = (sql, params = []) => {
-  try {
-    const stmt = db.prepare(sql);
-    const result = stmt.run(params);
-    return Promise.resolve({ lastID: result.lastInsertRowid, changes: result.changes });
-  } catch (err) {
-    return Promise.reject(err);
-  }
-};
+// Helper: get one row
+db.asyncGet = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
 
-db.asyncGet = (sql, params = []) => {
-  try {
-    const stmt = db.prepare(sql);
-    const row = stmt.get(params);
-    return Promise.resolve(row || null);
-  } catch (err) {
-    return Promise.reject(err);
-  }
-};
-
-db.asyncAll = (sql, params = []) => {
-  try {
-    const stmt = db.prepare(sql);
-    const rows = stmt.all(params);
-    return Promise.resolve(rows || []);
-  } catch (err) {
-    return Promise.reject(err);
-  }
-};
+// Helper: get all rows
+db.asyncAll = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
 
 module.exports = db;
